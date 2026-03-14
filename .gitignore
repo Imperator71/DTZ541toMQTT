@@ -4,6 +4,7 @@ __pycache__/
 *.pyd
 .python-version
 .env
+.lh/
 .venv/
 venv/
 dist/

@@ -22,6 +22,13 @@ def configure_logging(level: str) -> None:
 LOGGER = logging.getLogger(__name__)
 
 
+def _format_frame_hex(frame: bytes, *, max_bytes: int = 512) -> str:
+    if len(frame) <= max_bytes:
+        return frame.hex()
+    truncated = frame[:max_bytes]
+    return f"{truncated.hex()}...(+{len(frame) - max_bytes} bytes)"
+
+
 def main() -> None:
     settings = load_settings()
     configure_logging(settings.log_level)
@@ -57,7 +64,16 @@ def main() -> None:
                         raise ConnectionError("Meter stream closed the connection")
 
                     for frame in extractor.feed(chunk):
+                        if settings.log_raw_frames:
+                            LOGGER.info(
+                                "Raw frame (%s bytes): %s",
+                                len(frame),
+                                _format_frame_hex(frame),
+                            )
+
                         result = parse_frame(frame)
+                        if settings.log_parsed_frames:
+                            LOGGER.info("Parsed frame: %s", result.values or {})
                         if not result.values:
                             continue
 

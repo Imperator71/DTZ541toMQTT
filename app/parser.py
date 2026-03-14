@@ -82,7 +82,7 @@ class FrameStreamExtractor:
             del self._buffer[:second]
 
     def _find_start(self, offset: int) -> int:
-        return bytes(self._buffer).find(SML_START, offset)
+        return self._buffer.find(SML_START, offset)
 
 
 def parse_frame(frame: bytes) -> FrameResult:

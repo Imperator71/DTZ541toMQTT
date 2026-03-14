@@ -44,6 +44,8 @@ class Settings:
     mqtt_discovery_prefix: str
 
     log_level: str
+    log_raw_frames: bool
+    log_parsed_frames: bool
     publish_interval_seconds: int
     socket_timeout_seconds: int
 
@@ -75,6 +77,8 @@ def load_settings() -> Settings:
         mqtt_discovery=_get_bool("MQTT_DISCOVERY", True),
         mqtt_discovery_prefix=_get_str("MQTT_DISCOVERY_PREFIX", "homeassistant"),
         log_level=_get_str("LOG_LEVEL", "INFO").upper(),
+        log_raw_frames=_get_bool("LOG_RAW_FRAMES", False),
+        log_parsed_frames=_get_bool("LOG_PARSED_FRAMES", False),
         publish_interval_seconds=_get_int("PUBLISH_INTERVAL_SECONDS", 5),
         socket_timeout_seconds=_get_int("SOCKET_TIMEOUT_SECONDS", 15),
     )
