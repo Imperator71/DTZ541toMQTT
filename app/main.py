@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import socket
 import time
 from typing import Any
@@ -24,6 +25,7 @@ LOGGER = logging.getLogger(__name__)
 def main() -> None:
     settings = load_settings()
     configure_logging(settings.log_level)
+    LOGGER.info("DTZ541toMQTT starting, version=%s", os.getenv("APP_VERSION", "dev"))
 
     mqtt = MqttPublisher(settings)
     mqtt.connect()
