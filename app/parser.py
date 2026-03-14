@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from typing import Any
-
-LOGGER = logging.getLogger(__name__)
 
 SML_START = b"\x1b\x1b\x1b\x1b\x01\x01\x01\x01"
 
@@ -27,6 +24,17 @@ DIVISORS: dict[str, float] = {
     "power_w": 1.0,
 }
 
+_NUMERIC_LENGTHS: dict[int, tuple[int, bool]] = {
+    0x52: (1, True),
+    0x53: (2, True),
+    0x54: (3, True),
+    0x55: (4, True),
+    0x62: (1, False),
+    0x63: (2, False),
+    0x64: (3, False),
+    0x65: (4, False),
+}
+
 
 @dataclass
 class FrameResult:
@@ -36,10 +44,6 @@ class FrameResult:
 class FrameStreamExtractor:
     """
     Splits a continuous SML byte stream into likely telegram-sized frames.
-
-    For this meter stream, a pragmatic approach works well:
-    whenever two start markers are present, the bytes in between are treated
-    as one complete telegram.
     """
 
     def __init__(self) -> None:
@@ -103,13 +107,6 @@ def _find_obis_segment(frame: bytes, obis_bytes: bytes) -> bytes | None:
 
 
 def _extract_numeric(segment: bytes, key: str) -> float | int | None:
-    """
-    Extract a numeric value from a pragmatic subset of SML-like field encodings.
-
-    We look for patterns such as:
-      62 <unit> 52 <scaler> 65 <4-byte-unsigned>
-    which appear in the Holley sample stream.
-    """
     candidates: list[tuple[int, int]] = []
 
     i = 0
@@ -129,8 +126,6 @@ def _extract_numeric(segment: bytes, key: str) -> float | int | None:
     if not candidates:
         return None
 
-    # Use the last numeric candidate in the segment; in the observed Holley
-    # payloads, the actual reading appears at the end of the OBIS block.
     _, raw_value = candidates[-1]
 
     divisor = DIVISORS.get(key, 1.0)
@@ -142,12 +137,6 @@ def _extract_numeric(segment: bytes, key: str) -> float | int | None:
 
 
 def _extract_server_id(segment: bytes) -> str | None:
-    """
-    Extract a readable meter/server identifier from the OBIS 96.1.0 segment.
-
-    This is intentionally pragmatic:
-    we collect printable ASCII runs and prefer the longest useful one.
-    """
     runs: list[str] = []
     current: list[str] = []
 
@@ -165,10 +154,10 @@ def _extract_server_id(segment: bytes) -> str | None:
     if not runs:
         return None
 
-    # Prefer a reasonably compact ID-like token.
     runs.sort(key=len, reverse=True)
     best = runs[0].strip()
 
-    # Very long runs are unlikely to be the meter ID itself.
     if len(best) > 32:
-        best
+        best = best[:32]
+
+    return best or None
