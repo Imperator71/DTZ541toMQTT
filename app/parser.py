@@ -6,22 +6,32 @@ from typing import Any
 SML_START = b"\x1b\x1b\x1b\x1b\x01\x01\x01\x01"
 
 # OBIS identifiers from the SmartCircuits DTZ541 script.
-OBIS_1_8_0 = bytes.fromhex("0100010800ff")
-OBIS_2_8_0 = bytes.fromhex("0100020800ff")
-OBIS_16_7_0 = bytes.fromhex("0100100700ff")
-OBIS_96_1_0 = bytes.fromhex("0100600100ff")
-
 OBIS_MAP: dict[str, bytes] = {
-    "energy_import_kwh": OBIS_1_8_0,
-    "energy_export_kwh": OBIS_2_8_0,
-    "power_w": OBIS_16_7_0,
-    "server_id": OBIS_96_1_0,
+    "energy_import_kwh": bytes.fromhex("0100010800ff"),  # 1.8.0
+    "energy_export_kwh": bytes.fromhex("0100020800ff"),  # 2.8.0
+    "power_w": bytes.fromhex("0100100700ff"),           # 16.7.0
+    "frequency_hz": bytes.fromhex("01000e0700ff"),      # 14.7.0
+    "current_l1_a": bytes.fromhex("01001f0700ff"),      # 31.7.0
+    "voltage_l1_v": bytes.fromhex("0100200700ff"),      # 32.7.0
+    "current_l2_a": bytes.fromhex("0100330700ff"),      # 51.7.0
+    "voltage_l2_v": bytes.fromhex("0100340700ff"),      # 52.7.0
+    "current_l3_a": bytes.fromhex("0100470700ff"),      # 71.7.0
+    "voltage_l3_v": bytes.fromhex("0100480700ff"),      # 72.7.0
+    "server_id": bytes.fromhex("0100600100ff"),         # 96.1.0
 }
 
+# Default scaling when no explicit scaler is present or usable.
 DIVISORS: dict[str, float] = {
     "energy_import_kwh": 1000.0,
     "energy_export_kwh": 1000.0,
     "power_w": 1.0,
+    "frequency_hz": 1.0,
+    "current_l1_a": 1.0,
+    "current_l2_a": 1.0,
+    "current_l3_a": 1.0,
+    "voltage_l1_v": 1.0,
+    "voltage_l2_v": 1.0,
+    "voltage_l3_v": 1.0,
 }
 
 _NUMERIC_LENGTHS: dict[int, tuple[int, bool]] = {
@@ -29,10 +39,14 @@ _NUMERIC_LENGTHS: dict[int, tuple[int, bool]] = {
     0x53: (2, True),
     0x54: (3, True),
     0x55: (4, True),
+    0x56: (5, True),
+    0x57: (6, True),
     0x62: (1, False),
     0x63: (2, False),
     0x64: (3, False),
     0x65: (4, False),
+    0x66: (5, False),
+    0x67: (6, False),
 }
 
 
@@ -42,10 +56,6 @@ class FrameResult:
 
 
 class FrameStreamExtractor:
-    """
-    Splits a continuous SML byte stream into likely telegram-sized frames.
-    """
-
     def __init__(self) -> None:
         self._buffer = bytearray()
 
@@ -107,10 +117,48 @@ def _find_obis_segment(frame: bytes, obis_bytes: bytes) -> bytes | None:
 
 
 def _extract_numeric(segment: bytes, key: str) -> float | int | None:
-    candidates: list[tuple[int, int]] = []
+    scaler = _extract_scaler(segment)
+    candidates = _extract_numeric_candidates(segment)
+    if not candidates:
+        return None
 
+    raw_value = _pick_best_numeric(candidates, key)
+    value = float(raw_value)
+
+    if scaler is not None:
+        value *= 10 ** scaler
+    else:
+        value /= DIVISORS.get(key, 1.0)
+
+    if key in {"power_w"}:
+        return int(round(value))
+
+    return round(value, 3)
+
+
+def _extract_scaler(segment: bytes) -> int | None:
+    """
+    Look for signed 1-byte scaler markers like:
+      52 ff  -> -1
+      52 00  -> 0
+      52 01  -> 1
+    Prefer the last scaler seen in the segment.
+    """
+    scaler: int | None = None
+    for i in range(len(segment) - 1):
+        if segment[i] == 0x52:
+            raw = segment[i + 1 : i + 2]
+            scaler = int.from_bytes(raw, byteorder="big", signed=True)
+    return scaler
+
+
+def _extract_numeric_candidates(segment: bytes) -> list[tuple[int, int, bool]]:
+    """
+    Return tuples of (offset, parsed_value, signed).
+    """
+    candidates: list[tuple[int, int, bool]] = []
     i = 0
-    while i < len(segment) - 2:
+    while i < len(segment) - 1:
         marker = segment[i]
         if marker in _NUMERIC_LENGTHS:
             value_len, signed = _NUMERIC_LENGTHS[marker]
@@ -118,22 +166,38 @@ def _extract_numeric(segment: bytes, key: str) -> float | int | None:
             if end <= len(segment):
                 raw = segment[i + 1 : end]
                 parsed = int.from_bytes(raw, byteorder="big", signed=signed)
-                candidates.append((i, parsed))
+                candidates.append((i, parsed, signed))
                 i = end
                 continue
         i += 1
+    return candidates
 
-    if not candidates:
-        return None
 
-    _, raw_value = candidates[-1]
+def _pick_best_numeric(
+    candidates: list[tuple[int, int, bool]],
+    key: str,
+) -> int:
+    """
+    Heuristic:
+    - prefer the last unsigned value for counters/voltages/currents/frequency
+    - for power, prefer the last non-zero signed/unsigned value that looks realistic
+    """
+    if key == "power_w":
+        realistic: list[int] = []
+        for _, value, _ in candidates:
+            if abs(value) <= 200_000:
+                realistic.append(value)
+        if realistic:
+            # prefer the last non-zero reading, else the last realistic one
+            non_zero = [v for v in realistic if v != 0]
+            return non_zero[-1] if non_zero else realistic[-1]
 
-    divisor = DIVISORS.get(key, 1.0)
-    value = raw_value / divisor
+    # For all other measurements, use the last positive candidate.
+    positives = [value for _, value, _ in candidates if value >= 0]
+    if positives:
+        return positives[-1]
 
-    if divisor == 1.0:
-        return int(value)
-    return round(value, 3)
+    return candidates[-1][1]
 
 
 def _extract_server_id(segment: bytes) -> str | None:
@@ -154,8 +218,14 @@ def _extract_server_id(segment: bytes) -> str | None:
     if not runs:
         return None
 
-    runs.sort(key=len, reverse=True)
-    best = runs[0].strip()
+    # Prefer something that is not just the vendor prefix.
+    filtered = [r.strip() for r in runs if r.strip() and r.strip() != "HLY"]
+    if filtered:
+        filtered.sort(key=len, reverse=True)
+        best = filtered[0]
+    else:
+        runs.sort(key=len, reverse=True)
+        best = runs[0].strip()
 
     if len(best) > 32:
         best = best[:32]
