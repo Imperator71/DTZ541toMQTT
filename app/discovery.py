@@ -31,6 +31,55 @@ SENSOR_DEFINITIONS: dict[str, dict[str, Any]] = {
         "state_class": "measurement",
         "icon": "mdi:flash",
     },
+    "voltage_l1_v": {
+        "name": "DTZ541 Spannung L1",
+        "unit": "V",
+        "device_class": "voltage",
+        "state_class": "measurement",
+        "icon": "mdi:sine-wave",
+    },
+    "voltage_l2_v": {
+        "name": "DTZ541 Spannung L2",
+        "unit": "V",
+        "device_class": "voltage",
+        "state_class": "measurement",
+        "icon": "mdi:sine-wave",
+    },
+    "voltage_l3_v": {
+        "name": "DTZ541 Spannung L3",
+        "unit": "V",
+        "device_class": "voltage",
+        "state_class": "measurement",
+        "icon": "mdi:sine-wave",
+    },
+    "current_l1_a": {
+        "name": "DTZ541 Strom L1",
+        "unit": "A",
+        "device_class": "current",
+        "state_class": "measurement",
+        "icon": "mdi:current-ac",
+    },
+    "current_l2_a": {
+        "name": "DTZ541 Strom L2",
+        "unit": "A",
+        "device_class": "current",
+        "state_class": "measurement",
+        "icon": "mdi:current-ac",
+    },
+    "current_l3_a": {
+        "name": "DTZ541 Strom L3",
+        "unit": "A",
+        "device_class": "current",
+        "state_class": "measurement",
+        "icon": "mdi:current-ac",
+    },
+    "frequency_hz": {
+        "name": "DTZ541 Frequenz",
+        "unit": "Hz",
+        "device_class": "frequency",
+        "state_class": "measurement",
+        "icon": "mdi:sine-wave",
+    },
     "server_id": {
         "name": "DTZ541 Zählernummer",
         "icon": "mdi:identifier",
@@ -43,9 +92,6 @@ def publish_homeassistant_discovery(
     settings: Settings,
     meter_id: str | None,
 ) -> None:
-    """
-    Publish MQTT discovery config for the currently supported sensors.
-    """
     if not settings.mqtt_discovery:
         LOGGER.info("MQTT discovery disabled")
         return
