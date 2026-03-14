@@ -80,6 +80,36 @@ SENSOR_DEFINITIONS: dict[str, dict[str, Any]] = {
         "state_class": "measurement",
         "icon": "mdi:sine-wave",
     },
+    "phase_angle_l2_l1_deg": {
+        "name": "DTZ541 Winkel U-L2/U-L1",
+        "unit": "deg",
+        "state_class": "measurement",
+        "icon": "mdi:angle-acute",
+    },
+    "phase_angle_l3_l1_deg": {
+        "name": "DTZ541 Winkel U-L3/U-L1",
+        "unit": "deg",
+        "state_class": "measurement",
+        "icon": "mdi:angle-acute",
+    },
+    "phase_angle_p1_deg": {
+        "name": "DTZ541 Winkel I-L1/U-L1",
+        "unit": "deg",
+        "state_class": "measurement",
+        "icon": "mdi:angle-acute",
+    },
+    "phase_angle_p2_deg": {
+        "name": "DTZ541 Winkel I-L2/U-L2",
+        "unit": "deg",
+        "state_class": "measurement",
+        "icon": "mdi:angle-acute",
+    },
+    "phase_angle_p3_deg": {
+        "name": "DTZ541 Winkel I-L3/U-L3",
+        "unit": "deg",
+        "state_class": "measurement",
+        "icon": "mdi:angle-acute",
+    },
     "server_id": {
         "name": "DTZ541 Zählernummer",
         "icon": "mdi:identifier",

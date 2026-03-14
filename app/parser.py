@@ -17,6 +17,11 @@ OBIS_MAP: dict[str, bytes] = {
     "voltage_l2_v": bytes.fromhex("0100340700ff"),      # 52.7.0
     "current_l3_a": bytes.fromhex("0100470700ff"),      # 71.7.0
     "voltage_l3_v": bytes.fromhex("0100480700ff"),      # 72.7.0
+    "phase_angle_l2_l1_deg": bytes.fromhex("0100510701ff"),  # 81.7.1
+    "phase_angle_l3_l1_deg": bytes.fromhex("0100510702ff"),  # 81.7.2
+    "phase_angle_p1_deg": bytes.fromhex("0100510704ff"),     # 81.7.4
+    "phase_angle_p2_deg": bytes.fromhex("010051070fff"),     # 81.7.15
+    "phase_angle_p3_deg": bytes.fromhex("010051071aff"),     # 81.7.26
     "server_id": bytes.fromhex("0100600100ff"),         # 96.1.0
 }
 
@@ -32,6 +37,11 @@ DIVISORS: dict[str, float] = {
     "voltage_l1_v": 1.0,
     "voltage_l2_v": 1.0,
     "voltage_l3_v": 1.0,
+    "phase_angle_l2_l1_deg": 1.0,
+    "phase_angle_l3_l1_deg": 1.0,
+    "phase_angle_p1_deg": 1.0,
+    "phase_angle_p2_deg": 1.0,
+    "phase_angle_p3_deg": 1.0,
 }
 
 _NUMERIC_LENGTHS: dict[int, tuple[int, bool]] = {
@@ -127,8 +137,8 @@ def _extract_numeric(segment: bytes, key: str) -> float | int | None:
 
     if scaler is not None:
         value *= 10 ** scaler
-    else:
-        value /= DIVISORS.get(key, 1.0)
+
+    value /= DIVISORS.get(key, 1.0)
 
     if key in {"power_w"}:
         return int(round(value))
