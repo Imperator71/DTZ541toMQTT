@@ -59,15 +59,61 @@ _NUMERIC_LENGTHS: dict[int, tuple[int, bool]] = {
     0x67: (6, False),
 }
 
+_MIN_VALUE_LENGTH: dict[str, int] = {
+    "energy_import_kwh": 4,
+    "energy_export_kwh": 4,
+    "power_w": 2,
+    "frequency_hz": 2,
+    "current_l1_a": 2,
+    "current_l2_a": 2,
+    "current_l3_a": 2,
+    "voltage_l1_v": 2,
+    "voltage_l2_v": 2,
+    "voltage_l3_v": 2,
+    "phase_angle_l2_l1_deg": 2,
+    "phase_angle_l3_l1_deg": 2,
+    "phase_angle_p1_deg": 2,
+    "phase_angle_p2_deg": 2,
+    "phase_angle_p3_deg": 2,
+}
+
+_VALUE_RANGES: dict[str, tuple[float, float]] = {
+    "power_w": (-200_000.0, 200_000.0),
+    "frequency_hz": (45.0, 65.0),
+    "current_l1_a": (0.0, 200.0),
+    "current_l2_a": (0.0, 200.0),
+    "current_l3_a": (0.0, 200.0),
+    "voltage_l1_v": (80.0, 320.0),
+    "voltage_l2_v": (80.0, 320.0),
+    "voltage_l3_v": (80.0, 320.0),
+    "phase_angle_l2_l1_deg": (-180.0, 180.0),
+    "phase_angle_l3_l1_deg": (-180.0, 180.0),
+    "phase_angle_p1_deg": (-180.0, 180.0),
+    "phase_angle_p2_deg": (-180.0, 180.0),
+    "phase_angle_p3_deg": (-180.0, 180.0),
+}
+
 
 @dataclass
 class FrameResult:
     values: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class NumericCandidate:
+    offset: int
+    value: int
+    signed: bool
+    length: int
+    scaler: int | None
+
+
 class FrameStreamExtractor:
     def __init__(self) -> None:
         self._buffer = bytearray()
+
+    def reset(self) -> None:
+        self._buffer.clear()
 
     def feed(self, chunk: bytes) -> list[bytes]:
         self._buffer.extend(chunk)
@@ -127,18 +173,21 @@ def _find_obis_segment(frame: bytes, obis_bytes: bytes) -> bytes | None:
 
 
 def _extract_numeric(segment: bytes, key: str) -> float | int | None:
-    scaler = _extract_scaler(segment)
     candidates = _extract_numeric_candidates(segment)
     if not candidates:
         return None
 
-    raw_value = _pick_best_numeric(candidates, key)
-    value = float(raw_value)
+    candidate = _extract_unit_scaled_value(segment) or _pick_best_numeric(candidates, key)
+    value = float(candidate.value)
 
-    if scaler is not None:
-        value *= 10 ** scaler
-
+    if candidate.scaler is not None:
+        value *= 10 ** candidate.scaler
     value /= DIVISORS.get(key, 1.0)
+
+    if key in _VALUE_RANGES:
+        min_value, max_value = _VALUE_RANGES[key]
+        if value < min_value or value > max_value:
+            return None
 
     if key in {"power_w"}:
         return int(round(value))
@@ -146,27 +195,40 @@ def _extract_numeric(segment: bytes, key: str) -> float | int | None:
     return round(value, 3)
 
 
-def _extract_scaler(segment: bytes) -> int | None:
+def _extract_unit_scaled_value(segment: bytes) -> NumericCandidate | None:
     """
-    Look for signed 1-byte scaler markers like:
-      52 ff  -> -1
-      52 00  -> 0
-      52 01  -> 1
-    Prefer the last scaler seen in the segment.
+    Prefer values that follow the unit+scaler+value pattern used in SML list entries.
+    This avoids picking up DTZ541 valTime quirks where a raw uint32 appears before unit.
     """
-    scaler: int | None = None
-    for i in range(len(segment) - 1):
-        if segment[i] == 0x52:
-            raw = segment[i + 1 : i + 2]
-            scaler = int.from_bytes(raw, byteorder="big", signed=True)
-    return scaler
+    last: NumericCandidate | None = None
+    i = 0
+    while i + 4 < len(segment):
+        if segment[i] == 0x62 and segment[i + 2] == 0x52:
+            scaler_raw = segment[i + 3 : i + 4]
+            scaler = int.from_bytes(scaler_raw, byteorder="big", signed=True)
+            value_marker = segment[i + 4]
+            if value_marker in _NUMERIC_LENGTHS:
+                value_len, signed = _NUMERIC_LENGTHS[value_marker]
+                value_start = i + 5
+                value_end = value_start + value_len
+                if value_end <= len(segment):
+                    raw = segment[value_start:value_end]
+                    parsed = int.from_bytes(raw, byteorder="big", signed=signed)
+                    last = NumericCandidate(
+                        offset=i + 4,
+                        value=parsed,
+                        signed=signed,
+                        length=value_len,
+                        scaler=scaler,
+                    )
+                    i = value_end
+                    continue
+        i += 1
+    return last
 
 
-def _extract_numeric_candidates(segment: bytes) -> list[tuple[int, int, bool]]:
-    """
-    Return tuples of (offset, parsed_value, signed).
-    """
-    candidates: list[tuple[int, int, bool]] = []
+def _extract_numeric_candidates(segment: bytes) -> list[NumericCandidate]:
+    candidates: list[NumericCandidate] = []
     i = 0
     while i < len(segment) - 1:
         marker = segment[i]
@@ -176,38 +238,59 @@ def _extract_numeric_candidates(segment: bytes) -> list[tuple[int, int, bool]]:
             if end <= len(segment):
                 raw = segment[i + 1 : end]
                 parsed = int.from_bytes(raw, byteorder="big", signed=signed)
-                candidates.append((i, parsed, signed))
+                scaler = None
+                if i >= 2 and segment[i - 2] == 0x52:
+                    scaler_raw = segment[i - 1 : i]
+                    scaler = int.from_bytes(scaler_raw, byteorder="big", signed=True)
+                candidates.append(
+                    NumericCandidate(
+                        offset=i,
+                        value=parsed,
+                        signed=signed,
+                        length=value_len,
+                        scaler=scaler,
+                    )
+                )
                 i = end
                 continue
         i += 1
     return candidates
 
 
-def _pick_best_numeric(
-    candidates: list[tuple[int, int, bool]],
-    key: str,
-) -> int:
-    """
-    Heuristic:
-    - prefer the last unsigned value for counters/voltages/currents/frequency
-    - for power, prefer the last non-zero signed/unsigned value that looks realistic
-    """
+def _pick_best_numeric(candidates: list[NumericCandidate], key: str) -> NumericCandidate:
+    min_len = _MIN_VALUE_LENGTH.get(key, 1)
+    eligible = [candidate for candidate in candidates if candidate.length >= min_len]
+    if not eligible:
+        eligible = candidates
+
+    with_scaler = [candidate for candidate in eligible if candidate.scaler is not None]
+    if with_scaler:
+        eligible = with_scaler
+
     if key == "power_w":
-        realistic: list[int] = []
-        for _, value, _ in candidates:
-            if abs(value) <= 200_000:
-                realistic.append(value)
+        realistic = [c for c in eligible if abs(c.value) <= 200_000]
         if realistic:
-            # prefer the last non-zero reading, else the last realistic one
-            non_zero = [v for v in realistic if v != 0]
+            non_zero = [c for c in realistic if c.value != 0]
             return non_zero[-1] if non_zero else realistic[-1]
 
-    # For all other measurements, use the last positive candidate.
-    positives = [value for _, value, _ in candidates if value >= 0]
+    if key in {"energy_import_kwh", "energy_export_kwh"}:
+        unsigned = [c for c in eligible if not c.signed]
+        if unsigned:
+            max_len = max(c.length for c in unsigned)
+            longest = [c for c in unsigned if c.length == max_len]
+            positives = [c for c in longest if c.value >= 0]
+            return positives[-1] if positives else longest[-1]
+
+    unsigned = [c for c in eligible if not c.signed]
+    if unsigned:
+        positives = [c for c in unsigned if c.value >= 0]
+        return positives[-1] if positives else unsigned[-1]
+
+    positives = [c for c in eligible if c.value >= 0]
     if positives:
         return positives[-1]
 
-    return candidates[-1][1]
+    return eligible[-1]
 
 
 def _extract_server_id(segment: bytes) -> str | None:

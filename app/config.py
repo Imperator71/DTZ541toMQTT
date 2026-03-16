@@ -32,6 +32,9 @@ def _get_str(name: str, default: str = "") -> str:
 class Settings:
     tcp_host: str
     tcp_port: int
+    serial_device: str
+    serial_baud: int
+    serial_timeout_seconds: int
 
     mqtt_host: str
     mqtt_port: int
@@ -51,9 +54,11 @@ class Settings:
 
 
 def load_settings() -> Settings:
+    serial_device = _get_str("SERIAL_DEVICE")
+
     tcp_host = _get_str("TCP_HOST")
-    if not tcp_host:
-        raise ValueError("Environment variable TCP_HOST is required")
+    if not serial_device and not tcp_host:
+        raise ValueError("Environment variable TCP_HOST is required when SERIAL_DEVICE is not set")
 
     mqtt_host = _get_str("MQTT_HOST")
     if not mqtt_host:
@@ -68,6 +73,9 @@ def load_settings() -> Settings:
     return Settings(
         tcp_host=tcp_host,
         tcp_port=_get_int("TCP_PORT", 2001),
+        serial_device=serial_device,
+        serial_baud=_get_int("SERIAL_BAUD", 9600),
+        serial_timeout_seconds=_get_int("SERIAL_TIMEOUT_SECONDS", 2),
         mqtt_host=mqtt_host,
         mqtt_port=_get_int("MQTT_PORT", 1883),
         mqtt_username=_get_str("MQTT_USERNAME", ""),
