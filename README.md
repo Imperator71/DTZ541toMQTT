@@ -35,6 +35,12 @@ Environment variables:
 - `LOG_PARSED_FRAMES`: log parsed values for debugging, default `false`
 - `PUBLISH_INTERVAL_SECONDS`: minimum publish interval, default `5`
 - `SOCKET_TIMEOUT_SECONDS`: TCP socket timeout, default `15`
+- `ENERGY_VALIDATION_WINDOW_SIZE`: number of accepted energy readings kept for median-based validation, default `5`
+- `ENERGY_MAX_DELTA_KWH_PER_HOUR`: maximum accepted energy growth rate for outlier detection, default `50.0`
+- `ENERGY_NEGATIVE_JITTER_KWH`: tolerated small negative jitter for counters, default `0.002`
+- `ENERGY_RESET_CONFIRM_FRAMES`: suspicious low readings required before accepting a genuine counter reset or rebase, default `3`
+- `PUBLISH_FAULTY_READS`: publish rejected/confirmed energy validation events to MQTT, default `false`
+- `FAULTY_READ_TOPIC_SUFFIX`: topic suffix for validation events, default `faulty_read`
 
 Example direct serial setup:
 

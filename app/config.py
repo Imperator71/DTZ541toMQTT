@@ -21,6 +21,16 @@ def _get_int(name: str, default: int) -> int:
         raise ValueError(f"Environment variable {name} must be an integer") from exc
 
 
+def _get_float(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None or value.strip() == "":
+        return default
+    try:
+        return float(value)
+    except ValueError as exc:
+        raise ValueError(f"Environment variable {name} must be a number") from exc
+
+
 def _get_str(name: str, default: str = "") -> str:
     value = os.getenv(name)
     if value is None:
@@ -51,6 +61,12 @@ class Settings:
     log_parsed_frames: bool
     publish_interval_seconds: int
     socket_timeout_seconds: int
+    energy_validation_window_size: int
+    energy_max_delta_kwh_per_hour: float
+    energy_negative_jitter_kwh: float
+    energy_reset_confirm_frames: int
+    publish_faulty_reads: bool
+    faulty_read_topic_suffix: str
 
 
 def load_settings() -> Settings:
@@ -89,4 +105,10 @@ def load_settings() -> Settings:
         log_parsed_frames=_get_bool("LOG_PARSED_FRAMES", False),
         publish_interval_seconds=_get_int("PUBLISH_INTERVAL_SECONDS", 5),
         socket_timeout_seconds=_get_int("SOCKET_TIMEOUT_SECONDS", 15),
+        energy_validation_window_size=_get_int("ENERGY_VALIDATION_WINDOW_SIZE", 5),
+        energy_max_delta_kwh_per_hour=_get_float("ENERGY_MAX_DELTA_KWH_PER_HOUR", 50.0),
+        energy_negative_jitter_kwh=_get_float("ENERGY_NEGATIVE_JITTER_KWH", 0.002),
+        energy_reset_confirm_frames=_get_int("ENERGY_RESET_CONFIRM_FRAMES", 3),
+        publish_faulty_reads=_get_bool("PUBLISH_FAULTY_READS", False),
+        faulty_read_topic_suffix=_get_str("FAULTY_READ_TOPIC_SUFFIX", "faulty_read").strip("/"),
     )
