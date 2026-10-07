@@ -279,8 +279,15 @@ def _process_frame(
     if isinstance(meter_id, str) and last_meter_id and meter_id != last_meter_id:
         LOGGER.warning("Meter id changed from %s to %s, resetting energy validation state", last_meter_id, meter_id)
         _clear_energy_validation_state(energy_states)
+        discovery_published = False
+        last_published.clear()
     if isinstance(meter_id, str):
         last_meter_id = meter_id
+
+    if mqtt.consume_republish_request():
+        LOGGER.info("MQTT/HA reconnect detected; replaying discovery and retained states")
+        discovery_published = False
+        last_published.clear()
 
     now = time.time()
     filtered_values = _filter_values(result.values, now, settings, mqtt, energy_states)
@@ -288,20 +295,23 @@ def _process_frame(
         return discovery_published, last_publish_time, last_meter_id
 
     if settings.mqtt_discovery and not discovery_published:
-        publish_homeassistant_discovery(
-            mqtt=mqtt,
-            settings=settings,
-            meter_id=meter_id if isinstance(meter_id, str) else None,
-        )
-        discovery_published = True
+        discovery_meter_id = meter_id if isinstance(meter_id, str) else last_meter_id
+        if discovery_meter_id:
+            discovery_published = publish_homeassistant_discovery(
+                mqtt=mqtt,
+                settings=settings,
+                meter_id=discovery_meter_id,
+            )
+        else:
+            LOGGER.debug("Waiting for meter id before publishing Home Assistant discovery")
 
     should_publish = now - last_publish_time >= settings.publish_interval_seconds
     if should_publish:
         for key, value in filtered_values.items():
             if last_published.get(key) != value:
-                mqtt.publish_state(key, value, retain=True)
-                LOGGER.info("Published %s=%s", key, value)
-                last_published[key] = value
+                if mqtt.publish_state(key, value, retain=True):
+                    LOGGER.info("Published %s=%s", key, value)
+                    last_published[key] = value
         last_publish_time = now
 
     return discovery_published, last_publish_time, last_meter_id
@@ -314,6 +324,11 @@ def main() -> None:
 
     mqtt = MqttPublisher(settings)
     mqtt.connect()
+    if not mqtt.wait_until_connected(timeout=10.0):
+        LOGGER.warning(
+            "MQTT connection was not established within 10 seconds; "
+            "publishing will retry after the connection comes up"
+        )
 
     discovery_published = False
     last_published: dict[str, Any] = {}
