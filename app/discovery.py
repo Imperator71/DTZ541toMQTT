@@ -121,10 +121,14 @@ def publish_homeassistant_discovery(
     mqtt: MqttPublisher,
     settings: Settings,
     meter_id: str | None,
-) -> None:
+) -> bool:
     if not settings.mqtt_discovery:
         LOGGER.info("MQTT discovery disabled")
-        return
+        return True
+
+    if not mqtt.connected:
+        LOGGER.warning("Skipping MQTT discovery while broker is disconnected")
+        return False
 
     sanitized_meter_id = _sanitize_id(meter_id) if meter_id else "unknown-meter"
     device_identifier = f"{settings.mqtt_topic_prefix}_{sanitized_meter_id}"
@@ -143,6 +147,8 @@ def publish_homeassistant_discovery(
             "payload_not_available": "offline",
         }
     ]
+
+    all_published = True
 
     for sensor_key, meta in SENSOR_DEFINITIONS.items():
         object_id = f"{device_identifier}_{sensor_key}"
@@ -169,8 +175,12 @@ def publish_homeassistant_discovery(
         if "icon" in meta:
             payload["icon"] = meta["icon"]
 
-        mqtt.publish_value(topic, payload, retain=True)
-        LOGGER.info("Published MQTT discovery for %s", sensor_key)
+        if mqtt.publish_value(topic, payload, retain=True):
+            LOGGER.info("Published MQTT discovery for %s", sensor_key)
+        else:
+            all_published = False
+
+    return all_published
 
 
 def _sanitize_id(value: str) -> str:
